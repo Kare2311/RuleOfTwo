@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
+
 
 public class MirrorMovement : MonoBehaviour
 {
@@ -6,17 +8,20 @@ public class MirrorMovement : MonoBehaviour
     public float moveSpeed = 8f;
     public float strafeSpeed = 5f;
     public float jumpForce = 12f;
-    public float groundCheckDistance = 0.1f;
     public LayerMask groundLayer;
-    public float crouchHeight = 0.5f;
-    public float crouchSpeedMultiplier = 0.5f;
-    public float crouchTransitionSpeed = 5f;
+    public float fallMultiplier = 2.5f;
+    public float lowJumpMultiplier = 2f;
+    [Range(0.1f, 0.5f)] public float groundCheckDelay = 0.2f; // New: Prevents jump buffering
+
+    [Header("Ground Detection")]
+    public float groundCheckRadius = 0.25f; // Radius of the sphere cast
+    public float groundCheckOffset = 0.05f; // Small offset from bottom of character
+    public float groundCheckDistance = 0.3f;
 
     [Header("Collision")]
     public float skinWidth = 0.1f;
     public LayerMask wallLayer;
     public Vector3 boxColliderSize = new Vector3(0.5f, 1.8f, 0.5f);
-    public Vector3 crouchColliderSize = new Vector3(0.5f, 0.9f, 0.5f);
 
     [Header("Player References")]
     public Transform player1;
@@ -28,32 +33,68 @@ public class MirrorMovement : MonoBehaviour
     public Animator animator1;
     public Animator animator2;
     private float _movementMagnitude;
-    private float _crouchBlend;
 
     private Rigidbody rb1, rb2;
     private bool isGrounded1, isGrounded2;
-    private bool isCrouching = false;
-    private Vector3 originalColliderSize1, originalColliderSize2;
-    private Vector3 originalColliderCenter1, originalColliderCenter2;
+
+    private PlayerInputActions inputActions;
+    private Vector2 moveInput = Vector2.zero;
+    private bool jumpPressed = false;
+    private float lastGroundedTime1, lastGroundedTime2; // Track when we were last grounded
+
+    void Awake()
+    {
+        inputActions = new PlayerInputActions();
+        Debug.Log("Input actions initialized");
+    }
+
+    void OnEnable()
+    {
+        inputActions.Gameplay.Enable();
+        inputActions.Gameplay.Move.performed += ctx => moveInput = ctx.ReadValue<Vector2>();
+        inputActions.Gameplay.Move.canceled += ctx => moveInput = Vector2.zero;
+        inputActions.Gameplay.Jump.performed += ctx => jumpPressed = true;
+        Debug.Log("Input actions enabled");
+    }
+
+    void OnDisable()
+    {
+        inputActions.Gameplay.Move.performed -= ctx => moveInput = ctx.ReadValue<Vector2>();
+        inputActions.Gameplay.Move.canceled -= ctx => moveInput = Vector2.zero;
+        inputActions.Gameplay.Jump.performed -= ctx => jumpPressed = true;
+        inputActions.Gameplay.Disable();
+    }
+
+    void OnMove(InputAction.CallbackContext ctx)
+    {
+        moveInput = ctx.ReadValue<Vector2>();
+        Debug.Log($"Move input: {moveInput}");
+    }
+
+    void OnMoveCancel(InputAction.CallbackContext ctx)
+    {
+        moveInput = Vector2.zero;
+    }
+
+    void OnJump(InputAction.CallbackContext ctx)
+    {
+        jumpPressed = true;
+        Debug.Log("Jump pressed!");
+    }
 
     void Start()
     {
         rb1 = player1.GetComponent<Rigidbody>();
         rb2 = player2.GetComponent<Rigidbody>();
 
-        // Initialize collider references if not set
         if (player1Collider == null) player1Collider = player1.GetComponent<BoxCollider>();
         if (player2Collider == null) player2Collider = player2.GetComponent<BoxCollider>();
 
-        // Store original collider values
-        originalColliderSize1 = player1Collider.size;
-        originalColliderSize2 = player2Collider.size;
-        originalColliderCenter1 = player1Collider.center;
-        originalColliderCenter2 = player2Collider.center;
-
-        // Configure rigidbodies
         ConfigureRigidbody(rb1);
         ConfigureRigidbody(rb2);
+
+        Debug.Log($"Rigidbody1 gravity: {rb1.useGravity}, constraints: {rb1.constraints}");
+        Debug.Log($"Rigidbody2 gravity: {rb2.useGravity}, constraints: {rb2.constraints}");
     }
 
     void ConfigureRigidbody(Rigidbody rb)
@@ -65,32 +106,55 @@ public class MirrorMovement : MonoBehaviour
 
     void Update()
     {
-        // Ground check
-        isGrounded1 = Physics.Raycast(player1.position, Vector3.down, groundCheckDistance, groundLayer);
-        isGrounded2 = Physics.Raycast(player2.position, Vector3.down, groundCheckDistance, groundLayer);
-
-        // Crouch input
-        if (Input.GetKeyDown(KeyCode.LeftControl))
+        // Improved ground check with coyote time
+        Vector3 feetPos1 = player1.position + Vector3.down * (player1Collider.size.y / 2 - groundCheckOffset);
+        if (Physics.CheckSphere(feetPos1, groundCheckRadius, groundLayer))
         {
-            isCrouching = !isCrouching;
+            isGrounded1 = true;
+            lastGroundedTime1 = Time.time;
+        }
+        else
+        {
+            isGrounded1 = false;
         }
 
-        // Smooth crouch transition
-        _crouchBlend = Mathf.MoveTowards(_crouchBlend, isCrouching ? 1 : 0, crouchTransitionSpeed * Time.deltaTime);
+        // Improved ground check with coyote time
+        Vector3 feetPos2 = player2.position + Vector3.down * (player1Collider.size.y / 2 - groundCheckOffset);
+        if (Physics.CheckSphere(feetPos1, groundCheckRadius, groundLayer))
+        {
+            isGrounded2 = true;
+            lastGroundedTime2 = Time.time;
+        }
+        else
+        {
+            isGrounded2 = false;
+        }
 
-        // Movement
-        HandleMovement();
+        Debug.DrawRay(feetPos1, Vector3.down * groundCheckRadius, isGrounded1 ? Color.green : Color.red);
+        Debug.DrawRay(feetPos2, Vector3.down * groundCheckRadius, isGrounded2 ? Color.green : Color.red);
+
         UpdateAnimatorParameters();
+    }
+
+    void FixedUpdate()
+    {
+        HandleMovement();
+        HandleGravity();
+
+        if (jumpPressed)
+        {
+            Debug.Log($"Attempting jump. Grounded1: {isGrounded1}, Grounded2: {isGrounded2}");
+        }
+
+        // Reset jump input after physics update
+        jumpPressed = false;
     }
 
     void HandleMovement()
     {
-        float currentMoveSpeed = isCrouching ? moveSpeed * crouchSpeedMultiplier : moveSpeed;
-        float currentStrafeSpeed = isCrouching ? strafeSpeed * crouchSpeedMultiplier : strafeSpeed;
-
         // Get input
-        Vector3 moveInput = new Vector3(Input.GetAxis("Horizontal"), 0, Input.GetAxis("Vertical"));
-        Vector3 moveDirection = player1.TransformDirection(moveInput).normalized;
+        Vector3 inputVector = new Vector3(moveInput.x, 0, moveInput.y);
+        Vector3 moveDirection = player1.TransformDirection(inputVector).normalized;
 
         // Wall collision check for Player 1
         if (Physics.BoxCast(
@@ -106,74 +170,103 @@ public class MirrorMovement : MonoBehaviour
         }
 
         // Apply movement to Player 1
-        Vector3 velocity = moveDirection * currentMoveSpeed;
-        velocity.y = rb1.linearVelocity.y; // Preserve gravity
+        Vector3 velocity = moveDirection * moveSpeed;
+        velocity.y = rb1.linearVelocity.y;
         rb1.linearVelocity = velocity;
 
         // Mirror movement for Player 2 (inverted X)
         Vector3 mirroredVelocity = new Vector3(-velocity.x, velocity.y, velocity.z);
         rb2.linearVelocity = mirroredVelocity;
 
-        // Update collider size for crouching
-        UpdateColliderSize();
-
-        // Jump if grounded and not crouching
-        if (Input.GetKeyDown(KeyCode.Space) && isGrounded1 && isGrounded2 && !isCrouching)
+        // Jump if grounded
+        if (jumpPressed && (isGrounded1 || isGrounded2)) // Can jump if either player is grounded
         {
-            rb1.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-            rb2.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+            // Only jump with the grounded player(s)
+            if (isGrounded1)
+            {
+                rb1.linearVelocity = new Vector3(rb1.linearVelocity.x, 0, rb1.linearVelocity.z); // Reset vertical velocity
+                rb1.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+                isGrounded1 = false;
+            }
+
+            if (isGrounded2)
+            {
+                rb2.linearVelocity = new Vector3(rb2.linearVelocity.x, 0, rb2.linearVelocity.z);
+                rb2.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+                isGrounded2 = false;
+            }
         }
 
-        _movementMagnitude = Mathf.Clamp01(moveInput.magnitude);
+        // Enhanced jump with coyote time and input buffering
+        bool canJump1 = Time.time - lastGroundedTime1 <= groundCheckDelay;
+        bool canJump2 = Time.time - lastGroundedTime2 <= groundCheckDelay;
+
+        if (jumpPressed && (canJump1 || canJump2))
+        {
+            if (canJump1)
+            {
+                rb1.linearVelocity = new Vector3(rb1.linearVelocity.x, 0, rb1.linearVelocity.z);
+                rb1.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+                lastGroundedTime1 = 0; // Prevent double jumps
+            }
+
+            if (canJump2)
+            {
+                rb2.linearVelocity = new Vector3(rb2.linearVelocity.x, 0, rb2.linearVelocity.z);
+                rb2.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+                lastGroundedTime2 = 0;
+            }
+        }
+
+        _movementMagnitude = Mathf.Clamp01(new Vector3(moveInput.x, 0, moveInput.y).magnitude);
     }
 
-    void UpdateColliderSize()
+    void HandleGravity()
     {
-        // Smooth transition between standing and crouching collider sizes
-        player1Collider.size = Vector3.Lerp(
-            originalColliderSize1,
-            crouchColliderSize,
-            _crouchBlend);
+        // Apply stronger gravity when falling
+        if (rb1.linearVelocity.y < 0)
+        {
+            rb1.linearVelocity += Vector3.up * Physics.gravity.y * (fallMultiplier - 1) * Time.fixedDeltaTime;
+        }
+        // Apply lighter gravity when ascending but not holding jump
+        else if (rb1.linearVelocity.y > 0 && !Input.GetButton("Jump"))
+        {
+            rb1.linearVelocity += Vector3.up * Physics.gravity.y * (lowJumpMultiplier - 1) * Time.fixedDeltaTime;
+        }
 
-        player2Collider.size = Vector3.Lerp(
-            originalColliderSize2,
-            crouchColliderSize,
-            _crouchBlend);
-
-        // Adjust center position when crouching
-        player1Collider.center = Vector3.Lerp(
-            originalColliderCenter1,
-            new Vector3(0, crouchHeight / 2, 0),
-            _crouchBlend);
-
-        player2Collider.center = Vector3.Lerp(
-            originalColliderCenter2,
-            new Vector3(0, crouchHeight / 2, 0),
-            _crouchBlend);
+        if (rb2.linearVelocity.y < 0)
+        {
+            rb2.linearVelocity += Vector3.up * Physics.gravity.y * (fallMultiplier - 1) * Time.fixedDeltaTime;
+        }
+        // Apply lighter gravity when ascending but not holding jump
+        else if (rb2.linearVelocity.y > 0 && !Input.GetButton("Jump"))
+        {
+            rb2.linearVelocity += Vector3.up * Physics.gravity.y * (lowJumpMultiplier - 1) * Time.fixedDeltaTime;
+        }
     }
 
     void UpdateAnimatorParameters()
     {
-        animator1.SetFloat("CrouchBlend", _crouchBlend);
-        animator2.SetFloat("CrouchBlend", _crouchBlend);
         animator1.SetFloat("Speed", _movementMagnitude);
         animator2.SetFloat("Speed", _movementMagnitude);
-        //animator1.SetBool("IsGrounded", isGrounded1);
-        //animator2.SetBool("IsGrounded", isGrounded2);
+        // Optionally update grounded bools if your animators use them
+        // animator1.SetBool("IsGrounded", isGrounded1);
+        // animator2.SetBool("IsGrounded", isGrounded2);
     }
 
     void OnDrawGizmos()
     {
-        Gizmos.color = Color.red;
-        if (player1) Gizmos.DrawLine(player1.position, player1.position + Vector3.down * groundCheckDistance);
-        if (player2) Gizmos.DrawLine(player2.position, player2.position + Vector3.down * groundCheckDistance);
+        if (!Application.isPlaying) return;
 
-        // Draw box collider outlines
-        if (player1Collider != null)
-        {
-            Gizmos.color = Color.cyan;
-            Gizmos.matrix = player1.localToWorldMatrix;
-            Gizmos.DrawWireCube(player1Collider.center, player1Collider.size);
-        }
+        // Draw spheres at ground check positions
+        Gizmos.color = isGrounded1 ? Color.green : Color.red;
+        Vector3 spherePos1 = player1.position + Vector3.down * (player1Collider.size.y / 2 - groundCheckOffset);
+        Gizmos.DrawWireSphere(spherePos1, groundCheckRadius);
+
+        Gizmos.color = isGrounded2 ? Color.green : Color.red;
+        Vector3 spherePos2 = player2.position + Vector3.down * (player2Collider.size.y / 2 - groundCheckOffset);
+        Gizmos.DrawWireSphere(spherePos2, groundCheckRadius);
     }
+
+    
 }

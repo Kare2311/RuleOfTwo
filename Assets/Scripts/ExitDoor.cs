@@ -1,135 +1,141 @@
 using UnityEngine;
-using UnityEngine.UI;
+using TMPro;
 using UnityEngine.SceneManagement;
 using System.Collections;
-using TMPro;
 
-public class ExitDoor : MonoBehaviour
+public class ExitDoorManager : MonoBehaviour
 {
-    [Header("UI Settings")]
-    public GameObject interactPrompt;  // Assign a World Space Canvas with Text+CanvasGroup
-    public float promptHeight = 2f;    // How high above player to show prompt
-    public float fadeSpeed = 5f;       // How fast prompt appears/disappears
+    [Header("Player Assignments")]
+    public Transform player1;
+    public Transform player2;
 
-    [Header("Door Settings")]
-    public KeyCode interactKey = KeyCode.E;
-    public string nextLevelName = "Level2";
+    [Header("Door Assignments")]
+    public Transform door1;
+    public Transform door2;
     public float interactionRadius = 3f;
 
-    [Header("Feedback")]
-    public AudioClip openSound;
-    public Animator doorAnimator;
-    public ParticleSystem openEffect;
+    [Header("UI Settings")]
+    public GameObject centerPanel;
+    public TextMeshProUGUI centerText;
+    public KeyCode interactKey = KeyCode.E;
+    public string readyMessage = "Press 'E' to continue";
+    public float messageDuration = 3f;
 
-    
+    [Header("Transition Settings")]
+    public string nextLevelName = "Level2";
+    public float transitionDelay = 0.5f;
 
-    [SerializeField] Transform _player;
-    private CanvasGroup _promptGroup;
-    private bool _isPlayerNear;
-    private bool _isInteracting;
+    private bool _player1Near;
+    private bool _player2Near;
+    private Coroutine _messageTimer;
 
     void Start()
     {
-        // Initialize player reference
-        if (_player == null)
+        if (centerPanel != null) centerPanel.SetActive(false);
+
+        // Auto-find players if not assigned
+        if (player1 == null || player2 == null)
         {
-            _player = GameObject.FindGameObjectWithTag("Player")?.transform;
-            if (_player == null) Debug.LogError("Player not found!");
+            var players = GameObject.FindGameObjectsWithTag("Player");
+            if (players.Length > 0) player1 = players[0].transform;
+            if (players.Length > 1) player2 = players[1].transform;
         }
-
-        // Initialize UI
-        if (interactPrompt != null)
-        {
-            _promptGroup = interactPrompt.GetComponent<CanvasGroup>() ?? interactPrompt.AddComponent<CanvasGroup>();
-            _promptGroup.alpha = 0;
-            interactPrompt.SetActive(false);
-
-            // Set initial text
-            Text promptText = interactPrompt.GetComponentInChildren<Text>();
-            if (promptText != null) promptText.text = "Press 'E' to exit";
-        }
-
-        
-        
     }
-
-    
 
     void Update()
     {
-        if (_isInteracting || _player == null || interactPrompt == null) return;
+        CheckPlayerPositions();
+        HandleInteractionInput();
+    }
 
-        // Check distance to door
-        float distance = Vector3.Distance(transform.position, _player.position);
-        bool wasPlayerNear = _isPlayerNear;
-        _isPlayerNear = distance <= interactionRadius;
+    void CheckPlayerPositions()
+    {
+        bool wasPlayer1Near = _player1Near;
+        bool wasPlayer2Near = _player2Near;
+
+        _player1Near = Vector3.Distance(player1.position, door1.position) <= interactionRadius;
+        _player2Near = Vector3.Distance(player2.position, door2.position) <= interactionRadius;
 
         // Only update when state changes
-        if (_isPlayerNear != wasPlayerNear)
+        if (_player1Near != wasPlayer1Near || _player2Near != wasPlayer2Near)
         {
-            if (_isPlayerNear)
-                StartCoroutine(ShowPrompt());
-            else
-                StartCoroutine(HidePrompt());
-        }
-
-        // Position prompt above player's head
-        if (_isPlayerNear)
-        {
-            interactPrompt.transform.position = _player.position + Vector3.up * promptHeight;
-            interactPrompt.transform.LookAt(Camera.main.transform);
-            interactPrompt.transform.rotation = Quaternion.Euler(0, interactPrompt.transform.eulerAngles.y + 180, 0);
-        }
-
-        // Handle interaction
-        if (_isPlayerNear && Input.GetKeyDown(interactKey))
-        {
-            StartCoroutine(OpenDoor());
+            UpdateDoorStatus();
         }
     }
 
-    IEnumerator ShowPrompt()
+    void HandleInteractionInput()
     {
-        interactPrompt.SetActive(true);
-        float targetAlpha = 1f;
-
-        while (_promptGroup.alpha < targetAlpha)
+        if (_player1Near && _player2Near && Input.GetKeyDown(interactKey))
         {
-            _promptGroup.alpha = Mathf.MoveTowards(_promptGroup.alpha, targetAlpha, fadeSpeed * Time.deltaTime);
-            yield return null;
+            TransitionToNextLevel();
         }
     }
 
-
-    IEnumerator HidePrompt()
+    void UpdateDoorStatus()
     {
-        float targetAlpha = 0f;
+        if (centerPanel == null) return;
 
-        while (_promptGroup.alpha > targetAlpha)
+        bool bothNear = _player1Near && _player2Near;
+
+        if (bothNear)
         {
-            _promptGroup.alpha = Mathf.MoveTowards(_promptGroup.alpha, targetAlpha, fadeSpeed * Time.deltaTime);
-            yield return null;
+            ShowReadyMessage();
         }
-
-        interactPrompt.SetActive(false);
+        else
+        {
+            HideReadyMessage();
+        }
     }
 
-    IEnumerator OpenDoor()
+    void ShowReadyMessage()
     {
-        _isInteracting = true;
-        _promptGroup.alpha = 0;
+        centerPanel.SetActive(true);
+        centerText.text = readyMessage;
 
-        if (openSound != null) AudioSource.PlayClipAtPoint(openSound, transform.position);
-        if (doorAnimator != null) doorAnimator.SetTrigger("Open");
-        if (openEffect != null) openEffect.Play();
+        // Start/restart the message timer
+        if (_messageTimer != null) StopCoroutine(_messageTimer);
+        _messageTimer = StartCoroutine(HideMessageAfterDelay());
+    }
 
-        yield return new WaitForSeconds(1.5f);
-        if (!string.IsNullOrEmpty(nextLevelName)) SceneManager.LoadScene(nextLevelName);
+    void HideReadyMessage()
+    {
+        if (_messageTimer != null)
+        {
+            StopCoroutine(_messageTimer);
+            _messageTimer = null;
+        }
+        centerPanel.SetActive(false);
+    }
+
+    IEnumerator HideMessageAfterDelay()
+    {
+        yield return new WaitForSeconds(messageDuration);
+        HideReadyMessage();
+    }
+
+    void TransitionToNextLevel()
+    {
+        // Immediately hide message and load level
+        HideReadyMessage();
+        StartCoroutine(LoadNextLevel());
+    }
+
+    IEnumerator LoadNextLevel()
+    {
+        yield return new WaitForSeconds(transitionDelay);
+
+        if (!string.IsNullOrEmpty(nextLevelName))
+        {
+            SceneManager.LoadScene(nextLevelName);
+        }
     }
 
     void OnDrawGizmosSelected()
     {
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(transform.position, interactionRadius);
+        Gizmos.color = _player1Near ? Color.green : Color.yellow;
+        Gizmos.DrawWireSphere(door1.position, interactionRadius);
+
+        Gizmos.color = _player2Near ? Color.green : Color.yellow;
+        Gizmos.DrawWireSphere(door2.position, interactionRadius);
     }
 }

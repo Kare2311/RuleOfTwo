@@ -27,11 +27,55 @@ public class MainMenu : MonoBehaviour
     public float buttonHoverScale = 1.1f;
     public float buttonHoverDuration = 0.2f;
 
+    [Header("Title Effects")]
+    public float outlineWidth = 0.3f; // Increased thickness
+    public Color outlineColor = Color.black;
+    public float shadowDistance = 5f; // Graffiti-style shadow
+    public Color shadowColor = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+
+    [Header("Loading Screen")]
+    public GameObject loadingScreen; // Create a new UI Panel with black background
+    public TMP_Text loadingText; // Add text child to the loading screen panel
+    public float warningDisplayTime = 3f; // How long to show the warning
+
     private Vector3[] originalScales;
     private bool isTransitioning;
 
     void Start()
     {
+
+        RectTransform titleRect = titleText.GetComponent<RectTransform>();
+        titleRect.anchoredPosition = new Vector2(
+            titleRect.anchoredPosition.x,
+            100f // Adjust this value
+        );
+
+        // Force update
+        LayoutRebuilder.ForceRebuildLayoutImmediate(titleRect);
+
+        if (titleText != null)
+        {
+            // Make text thicker
+            titleText.fontStyle = FontStyles.Bold;
+            titleText.outlineWidth = outlineWidth;
+            titleText.outlineColor = outlineColor;
+
+            // Add graffiti-style shadow
+            titleText.fontMaterial.EnableKeyword("UNDERLAY_ON");
+            titleText.fontMaterial.SetColor("_UnderlayColor", shadowColor);
+            titleText.fontMaterial.SetFloat("_UnderlayOffsetX", shadowDistance);
+            titleText.fontMaterial.SetFloat("_UnderlayOffsetY", -shadowDistance);
+
+           
+        }
+
+        // Initialize loading screen as inactive
+        if (loadingScreen != null)
+        {
+            loadingScreen.SetActive(false);
+            loadingText.text = "<b><size=40><color=red>WARNING!</color></size></b>\nYou cannot save the game so if you exit all your progress will be forgotten";
+        }
+
         // Move title higher (adjust the 200f value to your preference)
         titleText.transform.position = new Vector3(
             titleText.transform.position.x,
@@ -137,7 +181,7 @@ public class MainMenu : MonoBehaviour
     {
         isTransitioning = true;
 
-        // Fade out all elements
+        // Fade out all menu elements
         for (int i = uiElements.Length - 1; i >= 0; i--)
         {
             if (uiElements[i] != null)
@@ -147,7 +191,22 @@ public class MainMenu : MonoBehaviour
             }
         }
 
-        yield return new WaitForSeconds(fadeOutDuration);
+        // Show loading screen
+        if (loadingScreen != null)
+        {
+            loadingScreen.SetActive(true);
+            CanvasGroup loadingGroup = loadingScreen.GetComponent<CanvasGroup>();
+            if (loadingGroup != null)
+            {
+                loadingGroup.alpha = 0;
+                yield return StartCoroutine(FadeElement(loadingGroup, 1, fadeOutDuration));
+            }
+        }
+
+        // Show warning for specified time
+        yield return new WaitForSeconds(warningDisplayTime);
+
+        // Load level
         SceneManager.LoadScene(firstLevelName);
     }
 
