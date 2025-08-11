@@ -18,6 +18,15 @@ public class JumpTutorial : MonoBehaviour
 
     void Update()
     {
+        Debug.Log("Obstacle layer value: " + obstacleLayer.value);
+
+        var players = GameObject.FindGameObjectsWithTag("Player");
+        Debug.Log("Found " + players.Length + " player objects");
+        foreach (var p in players)
+        {
+            Debug.Log("Player: " + p.name + " at " + p.transform.position);
+        }
+
         if (_hasShown) return;
 
         bool isNearObstacle = IsPlayerNearObstacle();
@@ -39,7 +48,7 @@ public class JumpTutorial : MonoBehaviour
         foreach (var player in GameObject.FindGameObjectsWithTag("Player"))
         {
             if (Physics.Raycast(
-                player.transform.position + Vector3.up * 0.5f,
+                player.transform.position + Vector3.up * 0.1f,
                 player.transform.forward,
                 out RaycastHit hit,
                 triggerDistance,

@@ -158,8 +158,8 @@ public class MirrorMovement : MonoBehaviour
         animator2.SetFloat("CrouchBlend", _crouchBlend);
         animator1.SetFloat("Speed", _movementMagnitude);
         animator2.SetFloat("Speed", _movementMagnitude);
-        animator1.SetBool("IsGrounded", isGrounded1);
-        animator2.SetBool("IsGrounded", isGrounded2);
+        //animator1.SetBool("IsGrounded", isGrounded1);
+        //animator2.SetBool("IsGrounded", isGrounded2);
     }
 
     void OnDrawGizmos()
