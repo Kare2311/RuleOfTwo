@@ -42,6 +42,8 @@ public class MirrorMovement : MonoBehaviour
     private bool jumpPressed = false;
     private float lastGroundedTime1, lastGroundedTime2; // Track when we were last grounded
 
+    private bool _mirroringEnabled = true;
+
     void Awake()
     {
         inputActions = new PlayerInputActions();
@@ -150,6 +152,11 @@ public class MirrorMovement : MonoBehaviour
         jumpPressed = false;
     }
 
+    public void SetMirroring(bool state)
+    {
+        _mirroringEnabled = state;
+    }
+
     void HandleMovement()
     {
         // Get input
@@ -174,17 +181,25 @@ public class MirrorMovement : MonoBehaviour
         velocity.y = rb1.linearVelocity.y;
         rb1.linearVelocity = velocity;
 
-        // Mirror movement for Player 2 (inverted X)
-        Vector3 mirroredVelocity = new Vector3(-velocity.x, velocity.y, velocity.z);
-        rb2.linearVelocity = mirroredVelocity;
-
-        // Jump if grounded
-        if (jumpPressed && (isGrounded1 || isGrounded2)) // Can jump if either player is grounded
+        // Player 2 movement (conditionally mirrored)
+        if (_mirroringEnabled)
         {
-            // Only jump with the grounded player(s)
+            // Only mirror X-axis (A/D keys), keep Z-axis (W/S) the same
+            Vector3 mirroredVelocity = new Vector3(-velocity.x, velocity.y, velocity.z);
+            rb2.linearVelocity = mirroredVelocity;
+        }
+        else
+        {
+            // Normal movement when power-up is active
+            rb2.linearVelocity = velocity;
+        }
+
+        // Jump handling remains unchanged
+        if (jumpPressed && (isGrounded1 || isGrounded2))
+        {
             if (isGrounded1)
             {
-                rb1.linearVelocity = new Vector3(rb1.linearVelocity.x, 0, rb1.linearVelocity.z); // Reset vertical velocity
+                rb1.linearVelocity = new Vector3(rb1.linearVelocity.x, 0, rb1.linearVelocity.z);
                 rb1.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
                 isGrounded1 = false;
             }
@@ -197,28 +212,7 @@ public class MirrorMovement : MonoBehaviour
             }
         }
 
-        // Enhanced jump with coyote time and input buffering
-        bool canJump1 = Time.time - lastGroundedTime1 <= groundCheckDelay;
-        bool canJump2 = Time.time - lastGroundedTime2 <= groundCheckDelay;
-
-        if (jumpPressed && (canJump1 || canJump2))
-        {
-            if (canJump1)
-            {
-                rb1.linearVelocity = new Vector3(rb1.linearVelocity.x, 0, rb1.linearVelocity.z);
-                rb1.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-                lastGroundedTime1 = 0; // Prevent double jumps
-            }
-
-            if (canJump2)
-            {
-                rb2.linearVelocity = new Vector3(rb2.linearVelocity.x, 0, rb2.linearVelocity.z);
-                rb2.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-                lastGroundedTime2 = 0;
-            }
-        }
-
-        _movementMagnitude = Mathf.Clamp01(new Vector3(moveInput.x, 0, moveInput.y).magnitude);
+        _movementMagnitude = Mathf.Clamp01(inputVector.magnitude);
     }
 
     void HandleGravity()
